@@ -1,19 +1,29 @@
 #include <SoftwareSerial.h>
 
-// Define Modbus Slave Address (compile-time)
-#define MODBUS_ADDRESS 1
+#define DEBUG 1  // Set to 1 to enable debug messages, 0 to disable
 
-// Define pins for HC-12
-#define HC12_RX 13 // Arduino RX
-#define HC12_TX 12 // Arduino TX
-#define HC12_SET 10 // HC-12 SET pin
+// HC12 module pins
+const int hc12RxPin = 12;
+const int hc12TxPin = 13;
+const int hc12SetPin = 11;
+
+const int hc12Channel = 50;  // Channel number (1–100)
+
+// Create SoftwareSerial for HC12
+SoftwareSerial hc12(hc12RxPin, hc12TxPin); // RX, TX
+
+#define START_BYTE 0xAA
+#define END_BYTE   0x55
+#define MAX_DATA_SIZE 260
+
+uint8_t hc12Buffer[MAX_DATA_SIZE + 10];    // buffer for HC12 to serial
 
 // Define pins for shoot and success signals
 #define SHOOT_PIN 5
 #define SUCCESS_PIN 6
 
 // Modbus constants
-#define BUFFER_SIZE 260 // Start (1) + Length (1) + Modbus RTU (255) + End (1)
+#define MODBUS_ADDRESS 1 // Slave address
 #define MODBUS_FUNCTION_READ_HOLDING_REGISTERS 0x03
 #define MODBUS_FUNCTION_WRITE_SINGLE_REGISTER  0x06
 #define MODBUS_EXCEPTION_ILLEGAL_FUNCTION      0x01
@@ -30,93 +40,163 @@ enum RegisterIndex {
 };
 uint16_t holdingRegisters[3] = {MODBUS_ADDRESS, 0, 0}; // Initialize registers
 
-// HC-12 communication
-SoftwareSerial HC12(HC12_RX, HC12_TX);
+uint16_t wrapModbusRTU(const uint8_t* data, uint16_t dataSize, uint8_t* outBuffer) {
+  if (dataSize > MAX_DATA_SIZE) return 0;
 
-// Encapsulation start and end markers
-#define PACKET_START 0xAA
-#define PACKET_END 0x55
+  uint16_t checksum = (dataSize >> 8) + (dataSize & 0xFF);
+  for (uint16_t i = 0; i < dataSize; i++) checksum += data[i];
+
+  uint16_t index = 0;
+  outBuffer[index++] = START_BYTE;
+  outBuffer[index++] = (dataSize >> 8) & 0xFF;
+  outBuffer[index++] = dataSize & 0xFF;
+  for (uint16_t i = 0; i < dataSize; i++) outBuffer[index++] = data[i];
+  outBuffer[index++] = (checksum >> 8) & 0xFF;
+  outBuffer[index++] = checksum & 0xFF;
+  outBuffer[index++] = END_BYTE;
+
+  return index;
+}
+
+bool unwrapModbusRTU(const uint8_t* packet, uint16_t packetSize, uint8_t* dataOut, uint16_t* dataSizeOut) {
+  if (packetSize < 6 || packet[0] != START_BYTE || packet[packetSize - 1] != END_BYTE) return false;
+
+  uint16_t size = (packet[1] << 8) | packet[2];
+  if (size > MAX_DATA_SIZE || packetSize != size + 6) return false;
+
+  uint16_t checksum = (size >> 8) + (size & 0xFF);
+  for (uint16_t i = 0; i < size; i++) {
+      dataOut[i] = packet[3 + i];
+      checksum += dataOut[i];
+  }
+
+  uint16_t receivedChecksum = (packet[3 + size] << 8) | packet[4 + size];
+  if (checksum != receivedChecksum) return false;
+
+  *dataSizeOut = size;
+  return true;
+}
+
+void setHC12Channel(uint8_t channel) {
+  if (channel < 1 || channel > 100) return;  // Out of range
+
+  char cmd[10];
+  sprintf(cmd, "AT+C%03d", channel);  // Format: AT+C005, AT+C100, etc.
+  Serial.print("Setting HC12 to channel: ");
+  Serial.println(cmd);
+
+  digitalWrite(hc12SetPin, LOW);  // Enter AT command mode
+  delay(50);
+
+  hc12.print(cmd);
+  delay(100); // Give HC12 time to process
+
+  // Optional: Wait for OK response
+  while (hc12.available()) {
+      char c = hc12.read();
+      // Optionally print to Serial for debug
+      if (DEBUG) {
+          Serial.print(c);
+      }
+  }
+
+  digitalWrite(hc12SetPin, HIGH); // Back to transparent mode
+  delay(50);
+}
 
 void setup() {
-  // Setup pins
-  pinMode(SHOOT_PIN, OUTPUT);
-  pinMode(SUCCESS_PIN, INPUT);
-  pinMode(HC12_SET, OUTPUT);
+  pinMode(RS485_DE, OUTPUT); // RS485 DE pin
+  digitalWrite(RS485_DE, LOW); // Set to receive mode
+  pinMode(hc12SetPin, OUTPUT);
+  digitalWrite(hc12SetPin, HIGH); // Default mode
 
-  pinMode(RS485_DE, OUTPUT);
-
-  // Initialize HC-12
-  HC12.begin(9600); // Default HC-12 baud rate
-  configureHC12(); // Configure HC-12 for reliable communication
+  hc12.begin(9600);       // HC12 communication
+  setHC12Channel(hc12Channel); // Set channel before any data is sent
 
   // Debug output
-  Serial.begin(9600); // Debugging on Serial Monitor
-    digitalWrite(RS485_DE, HIGH);
-  Serial.println("Custom Modbus Client Initialized...");
-  digitalWrite(RS485_DE, LOW);
+  if (DEBUG) {
+    Serial.begin(9600); // Modbus RTU side
+    Serial.println("HC-12 and Modbus RTU setup complete.");
+  }
+  
 }
 
 void loop() {
-  // Poll for incoming encapsulated data from HC-12
-  if (HC12.available()) {
-    uint8_t request[BUFFER_SIZE];
-    digitalWrite(RS485_DE, HIGH);
-    Serial.println("Received data from HC-12...");
-    digitalWrite(RS485_DE, LOW);
-    int requestLength = receiveEncapsulatedPacket(request, BUFFER_SIZE);
+  static uint8_t recvBuffer[MAX_DATA_SIZE + 10];
+  static uint16_t recvIndex = 0;
+  static bool receiving = false;
+  static unsigned long lastByteTime = 0;
 
-    // If a valid packet is received, process it
-    if (requestLength > 0) {
-      uint8_t response[BUFFER_SIZE];
-      int responseLength = processModbusRequest(request, requestLength, response);
+  // 1. Receive and buffer data from HC12
+  while (hc12.available()) {
+    uint8_t byteIn = hc12.read();
+    lastByteTime = millis();
 
-      // If a valid response is generated, send it back encapsulated
-      if (responseLength > 0) {
-        sendEncapsulatedPacket(response, responseLength);
+    if (!receiving && byteIn == START_BYTE) {
+      receiving = true;
+      recvIndex = 0;
+      recvBuffer[recvIndex++] = byteIn;
+    } else if (receiving) {
+      if (recvIndex < sizeof(recvBuffer)) {
+        recvBuffer[recvIndex++] = byteIn;
+        if (byteIn == END_BYTE) break; // Possible end of packet
+      } else {
+        receiving = false; // Overflow
       }
     }
   }
 
-  // Handle shoot signal if SHOOT register is set
-  if (holdingRegisters[SHOOT] == 1) {
-    triggerShoot();
-    holdingRegisters[SHOOT] = 0; // Reset after triggering
-  }
+  // 2. Timeout: process if no new byte for 10ms
+  if (receiving && (millis() - lastByteTime > 10)) {
+    receiving = false;
 
-  // Update SUCCESS register from the SUCCESS_PIN state
-  holdingRegisters[SUCCESS] = digitalRead(SUCCESS_PIN);
-}
+    uint8_t modbusData[MAX_DATA_SIZE];
+    uint16_t modbusSize = 0;
 
-// Receive an encapsulated packet, decapsulate, and return the payload length
-int receiveEncapsulatedPacket(uint8_t *buffer, int maxLength) {
-  bool startDetected = false;
-  int index = 0;
+    if (unwrapModbusRTU(recvBuffer, recvIndex, modbusData, &modbusSize)) {
+#if DEBUG
+      Serial.print("Received valid Modbus packet (size ");
+      Serial.print(modbusSize);
+      Serial.println(")");
+#endif
 
-  while (HC12.available()) {
-    uint8_t byte = HC12.read();
+      // 3. Process Modbus request
+      uint8_t response[MAX_DATA_SIZE];
+      int responseSize = processModbusRequest(modbusData, modbusSize, response);
 
-    // Detect start marker
-    if (byte == PACKET_START && !startDetected) {
-      startDetected = true;
-      index = 0; // Reset buffer index
-    } else if (byte == PACKET_END && startDetected) {
-      // End marker detected, return the length of the payload
-      return index;
-    } else if (startDetected && index < maxLength) {
-      // Store payload bytes
-      buffer[index++] = byte;
+      // 4. Wrap and send the response if valid
+      if (responseSize > 0) {
+        uint16_t wrappedSize = wrapModbusRTU(response, responseSize, hc12Buffer);
+        hc12.write(hc12Buffer, wrappedSize);
+
+#if DEBUG
+        Serial.print("Sent response (size ");
+        Serial.print(wrappedSize);
+        Serial.println(")");
+#endif
+      }
+
+    } else {
+#if DEBUG
+      Serial.println("Invalid packet received.");
+#endif
     }
+
+    recvIndex = 0; // Ready for next
   }
 
-  return 0; // No complete packet received
+  // 5. Modbus-side logic (as before)
+  if (holdingRegisters[SHOOT] == 1) {
+    holdingRegisters[SUCCESS] = 0;
+    triggerShoot();
+    holdingRegisters[SHOOT] = 0;
+  }
+
+  if (holdingRegisters[SHOOT] == 0) {
+    holdingRegisters[SUCCESS] = digitalRead(SUCCESS_PIN);
+  }
 }
 
-// Send a payload encapsulated with start and end markers
-void sendEncapsulatedPacket(uint8_t *data, int length) {
-  HC12.write(PACKET_START); // Start marker
-  HC12.write(data, length); // Payload
-  HC12.write(PACKET_END); // End marker
-}
 
 // Process a Modbus RTU request and generate a response
 int processModbusRequest(uint8_t *request, int requestLength, uint8_t *response) {
@@ -231,20 +311,4 @@ void triggerShoot() {
   digitalWrite(SHOOT_PIN, HIGH);
   delay(100); // Simulate short trigger pulse
   digitalWrite(SHOOT_PIN, LOW);
-}
-
-// Configure HC-12 for reliable communication
-void configureHC12() {
-  digitalWrite(HC12_SET, LOW); // Enter AT Command mode
-  delay(100);
-
-  HC12.println("AT+P8"); // Set maximum power (100mW)
-  delay(100);
-  HC12.println("AT+B9600"); // Set baud rate to 9600
-  delay(100);
-  HC12.println("AT+FU3"); // Set FU3 mode for long-distance communication
-  delay(100);
-
-  digitalWrite(HC12_SET, HIGH); // Exit AT Command mode
-  delay(100);
 }

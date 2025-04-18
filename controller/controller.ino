@@ -1,122 +1,148 @@
 #include <SoftwareSerial.h>
 
-// Define pins for HC-12
-#define HC12_RX 13 // Arduino RX
-#define HC12_TX 12 // Arduino TX
-#define HC12_SET 11 // HC-12 SET pin
+#define DEBUG 1  // Set to 1 to enable debug messages, 0 to disable
 
-#define RADIO_CHANNEL "AT+C001" // HC-12 channel
+// HC12 module pins
+const int hc12RxPin = 12;
+const int hc12TxPin = 13;
+const int hc12SetPin = 11;
 
-// Define UART for HC12
+const int hc12Channel = 50;  // Channel number (1–100)
+
+// Create SoftwareSerial for HC12
+SoftwareSerial hc12(hc12RxPin, hc12TxPin); // RX, TX
+
+#define START_BYTE 0xAA
+#define END_BYTE   0x55
+#define MAX_DATA_SIZE 260
+
 #define RS485_DE 2 // RS485 DE pin
-SoftwareSerial HC12(HC12_RX, HC12_TX);
 
-// Define buffer sizes
-#define BUFFER_SIZE 260 // Start (1) + Length (1) + Modbus RTU (255) + End (1)
-uint8_t modbusRequest[BUFFER_SIZE];
-uint8_t modbusResponse[BUFFER_SIZE];
+uint8_t modbusBuffer[MAX_DATA_SIZE + 10];  // buffer for serial to HC12
+uint8_t hc12Buffer[MAX_DATA_SIZE + 10];    // buffer for HC12 to serial
 
-// Serial baud rates
-#define MODBUS_BAUD 9600
-#define HC12_BAUD 9600
+uint16_t wrapModbusRTU(const uint8_t* data, uint16_t dataSize, uint8_t* outBuffer) {
+    if (dataSize > MAX_DATA_SIZE) return 0;
 
-// Encapsulation start and end markers
-#define PACKET_START 0xAA
-#define PACKET_END 0x55
+    uint16_t checksum = (dataSize >> 8) + (dataSize & 0xFF);
+    for (uint16_t i = 0; i < dataSize; i++) checksum += data[i];
+
+    uint16_t index = 0;
+    outBuffer[index++] = START_BYTE;
+    outBuffer[index++] = (dataSize >> 8) & 0xFF;
+    outBuffer[index++] = dataSize & 0xFF;
+    for (uint16_t i = 0; i < dataSize; i++) outBuffer[index++] = data[i];
+    outBuffer[index++] = (checksum >> 8) & 0xFF;
+    outBuffer[index++] = checksum & 0xFF;
+    outBuffer[index++] = END_BYTE;
+
+    return index;
+}
+
+bool unwrapModbusRTU(const uint8_t* packet, uint16_t packetSize, uint8_t* dataOut, uint16_t* dataSizeOut) {
+    if (packetSize < 6 || packet[0] != START_BYTE || packet[packetSize - 1] != END_BYTE) return false;
+
+    uint16_t size = (packet[1] << 8) | packet[2];
+    if (size > MAX_DATA_SIZE || packetSize != size + 6) return false;
+
+    uint16_t checksum = (size >> 8) + (size & 0xFF);
+    for (uint16_t i = 0; i < size; i++) {
+        dataOut[i] = packet[3 + i];
+        checksum += dataOut[i];
+    }
+
+    uint16_t receivedChecksum = (packet[3 + size] << 8) | packet[4 + size];
+    if (checksum != receivedChecksum) return false;
+
+    *dataSizeOut = size;
+    return true;
+}
+
+void setHC12Channel(uint8_t channel) {
+    if (channel < 1 || channel > 100) return;  // Out of range
+
+    char cmd[10];
+    sprintf(cmd, "AT+C%03d", channel);  // Format: AT+C005, AT+C100, etc.
+    Serial.print("Setting HC12 to channel: ");
+    Serial.println(cmd);
+
+    digitalWrite(hc12SetPin, LOW);  // Enter AT command mode
+    delay(50);
+
+    hc12.print(cmd);
+    delay(100); // Give HC12 time to process
+
+    // Optional: Wait for OK response
+    while (hc12.available()) {
+        char c = hc12.read();
+        // Optionally print to Serial for debug
+        if (DEBUG) {
+            Serial.print(c);
+        }
+    }
+
+    digitalWrite(hc12SetPin, HIGH); // Back to transparent mode
+    delay(50);
+}
+
 
 void setup() {
-  // Initialize UART Serial for Modbus RTU
-  pinMode(RS485_DE, OUTPUT);
-  digitalWrite(RS485_DE, LOW); // Set RS485 to receive mode
-  Serial.begin(MODBUS_BAUD);
+    pinMode(RS485_DE, OUTPUT); // RS485 DE pin
+    digitalWrite(RS485_DE, LOW); // Set to receive mode
+    pinMode(hc12SetPin, OUTPUT);
+    digitalWrite(hc12SetPin, HIGH); // Default mode
 
-  // Initialize SoftwareSerial for HC12
-  HC12.begin(HC12_BAUD);
-  configureHC12(); // Configure HC-12 for reliable communication
+    Serial.begin(9600);     // Modbus RTU side
+    hc12.begin(9600);       // HC12 communication
+
+    setHC12Channel(hc12Channel); // Set channel before any data is sent
 }
 
 void loop() {
-  // Check if data is available from Modbus RTU Master
-  if (Serial.available()) {
-    // Read Modbus RTU data
-    HC12.write("aaa");
+    // Relay Modbus data from Serial to HC12
+    if (Serial.available()) {
+        delay(10); // Wait to receive the full Modbus frame
 
-    short requestLength = readModbusRequest(modbusRequest, BUFFER_SIZE);
+        uint16_t len = 0;
+        while (Serial.available() && len < MAX_DATA_SIZE) {
+            modbusBuffer[len++] = Serial.read();
+        }
 
-
-    // Encapsulate and send over HC12
-    sendOverHC12(modbusRequest, requestLength);
-  }
-
-  // Check if data is received from HC12
-  if (HC12.available()) {
-    // Read response from HC12
-    short responseLength = receiveFromHC12(modbusResponse, BUFFER_SIZE);
-
-    // Forward response to Modbus Master
-    if (responseLength > 0) {
-      digitalWrite(RS485_DE, HIGH); // Set RS485 to transmit mode
-      delay(1); // Allow time for DE to take effect
-      Serial.write(modbusResponse, responseLength);
-      digitalWrite(RS485_DE, LOW); // Set RS485 back to receive mode
+        uint16_t wrappedLen = wrapModbusRTU(modbusBuffer, len, hc12Buffer);
+        if (wrappedLen > 0) {
+            hc12.write(hc12Buffer, wrappedLen);
+        }
     }
-  }
-}
 
-// Function to read Modbus RTU request
-short readModbusRequest(uint8_t *buffer, short bufferSize) {
-  short index = 0;
-  while (Serial.available() && index < bufferSize) {
-    buffer[index++] = Serial.read();
-    delay(2); // Small delay for UART data
-  }
-  return index;
-}
+    // Relay response from HC12 to Serial
+    static uint8_t rxIndex = 0;
+    while (hc12.available()) {
+        uint8_t b = hc12.read();
+        if (rxIndex < sizeof(hc12Buffer)) {
+            hc12Buffer[rxIndex++] = b;
+        }
 
-// Function to encapsulate and send data over HC12
-void sendOverHC12(uint8_t *data, short length) {
-  HC12.write(PACKET_START);       // Start byte for encapsulation
-  HC12.write(length);     // Length of data
-  HC12.write(data, length); // Actual Modbus RTU data
-  HC12.write(PACKET_END);       // End byte for encapsulation
-}
+        // Check if we might have a full packet
+        if (rxIndex >= 6 && hc12Buffer[0] == START_BYTE && hc12Buffer[rxIndex - 1] == END_BYTE) {
+            uint8_t unwrapped[MAX_DATA_SIZE];
+            uint16_t unwrappedLen = 0;
 
-// Function to receive and process data from HC12
-short receiveFromHC12(uint8_t *buffer, short bufferSize) {
-  short index = 0;
-  bool startDetected = false;
-
-  while (HC12.available() && index < bufferSize) {
-    uint8_t byte = HC12.read();
-
-    // Detect start byte
-    if (byte == 0xAA && !startDetected) {
-      startDetected = true;
-      index = 0; // Reset buffer index
-    } else if (byte == 0x55 && startDetected) {
-      // End byte detected
-      break;
-    } else if (startDetected) {
-      buffer[index++] = byte;
+            if (unwrapModbusRTU(hc12Buffer, rxIndex, unwrapped, &unwrappedLen)) {
+                digitalWrite(RS485_DE, HIGH); // Set to transmit mode
+                Serial.write(unwrapped, unwrappedLen);
+                digitalWrite(RS485_DE, LOW); // Set back to receive mode
+            }
+            else {
+                if (DEBUG) {
+                    Serial.print("Invalid packet: ");
+                    for (uint16_t i = 0; i < rxIndex; i++) {
+                        Serial.print(hc12Buffer[i], HEX);
+                        Serial.print(" ");
+                    }
+                    Serial.println();
+                }
+            }
+            rxIndex = 0; // Reset for next packet
+        }
     }
-  }
-  return index;
-}
-
-// Configure HC-12 for reliable communication
-void configureHC12() {
-  digitalWrite(HC12_SET, LOW); // Enter AT Command mode
-  delay(100);
-
-  HC12.println("AT+P8"); // Set maximum power (100mW)
-  delay(100);
-  HC12.println("AT+B9600"); // Set baud rate to 9600
-  delay(100);
-  HC12.println("AT+FU3"); // Set FU3 mode for long-distance communication
-  delay(100);
-  HC12.println(RADIO_CHANNEL); // Set channel
-  delay(100);
-
-  digitalWrite(HC12_SET, HIGH); // Exit AT Command mode
-  delay(100);
 }

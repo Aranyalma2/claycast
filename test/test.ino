@@ -1,8 +1,8 @@
 #include <SoftwareSerial.h>
 
 // HC12 module pins
-const int hc12RxPin = 13;
-const int hc12TxPin = 12;
+const int hc12RxPin = 12;
+const int hc12TxPin = 13;
 const int hc12SetPin = 11;
 
 const int hc12Channel = 50;  // Channel number (1–100)
@@ -59,6 +59,8 @@ void setHC12Channel(uint8_t channel) {
 
     char cmd[10];
     sprintf(cmd, "AT+C%03d", channel);  // Format: AT+C005, AT+C100, etc.
+    Serial.print("Setting HC12 to channel: ");
+    Serial.println(cmd);
 
     digitalWrite(hc12SetPin, LOW);  // Enter AT command mode
     delay(50);

@@ -1,28 +1,32 @@
 ## The core tasks of the controller
 
-### Setup Serial Communication:
+### 📡 Serial Communication Setup
 
-* Use hardware Serial for UART communication with the Modbus RTU master.
-* Use SoftwareSerial or another UART for HC12 communication.
+- Uses **hardware `Serial`** for UART communication with the Modbus RTU master
+- Uses **`SoftwareSerial`** or a secondary UART for the HC12 module
 
-### Encapsulate Modbus RTU Data:
+### 📦 Modbus RTU Data Encapsulation
 
-* Read data from the Serial UART (Modbus RTU data).
-* Encapsulate the Modbus data with an additional header or wrapper for wireless transmission.
+- Reads Modbus RTU requests from UART
+- Wraps requests in a custom protocol header for wireless transmission via HC12
 
-### Transmit Data via HC12:
+### 🚀 HC12 Transmission
 
-* Send the encapsulated data over the air.
+- Sends encapsulated Modbus RTU requests over HC12
+- Receives wrapped responses wirelessly from the client
 
-### Receive and Process Data over HC12:
+### 📥 Response Processing
 
-* Read incoming data from the HC12.
-* Validate and process it (remove the wireless wrapper).
-* Forward the unwrapped response to the Modbus master via Serial UART.
+- Validates incoming wrapped responses
+- Unwraps the Modbus RTU data
+- Forwards it back to the Modbus master via hardware `Serial`
 
-## Data encapsulation
+---
 
-All messages follow the same header format:
+## 📦 Data Encapsulation Format
+
+All HC12-transmitted messages use a consistent wrapper protocol:
+
 ```
 +--------------------+---------+----------------------+
 | Field              | Size    | Description          |
@@ -34,4 +38,10 @@ All messages follow the same header format:
 | End byte (0x55)    | 1 Byte  | Packet end byte      |
 +--------------------+---------+----------------------+
 ```
-Destination determined by the content address field.
+
+- The `Data` section contains a complete Modbus RTU request or response
+- Destination is determined by the Modbus RTU address field inside the data
+
+## 🔧 Notes
+
+- Make sure the HC12 modules are on the same channel (e.g. `CH050`)  
