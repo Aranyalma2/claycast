@@ -24,13 +24,14 @@
 
 All messages follow the same header format:
 ```
-+--------------------+---------+---------------------+
-| Field              | Size    | Description         |
-+--------------------+---------+---------------------+
-| Start byte (0xAA)  | 1 Byte  | Package start byte  |
-| Size               | 2 Bytes | Content size        |
-| Content            | X Bytes | Modbus RTU package  |
-| End byte (0x55)    | 1 Byte  | Package end byte    |
-+--------------------+---------+---------------------+
++--------------------+---------+----------------------+
+| Field              | Size    | Description          |
++--------------------+---------+----------------------+
+| Start byte (0xAA)  | 1 Byte  | Packet start byte    |
+| Data size          | 2 Bytes | Data size            |
+| Data               | X Bytes | Modbus RTU package   |
+| Checksum           | 2 Bytes | Size + Data checksum |
+| End byte (0x55)    | 1 Byte  | Packet end byte      |
++--------------------+---------+----------------------+
 ```
 Destination determined by the content address field.

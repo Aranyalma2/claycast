@@ -1,11 +1,14 @@
 #include <SoftwareSerial.h>
 
 // Define pins for HC-12
-#define HC12_RX 11 // Arduino RX
+#define HC12_RX 13 // Arduino RX
 #define HC12_TX 12 // Arduino TX
-#define HC12_SET 13 // HC-12 SET pin
+#define HC12_SET 11 // HC-12 SET pin
+
+#define RADIO_CHANNEL "AT+C001" // HC-12 channel
 
 // Define UART for HC12
+#define RS485_DE 2 // RS485 DE pin
 SoftwareSerial HC12(HC12_RX, HC12_TX);
 
 // Define buffer sizes
@@ -23,6 +26,8 @@ uint8_t modbusResponse[BUFFER_SIZE];
 
 void setup() {
   // Initialize UART Serial for Modbus RTU
+  pinMode(RS485_DE, OUTPUT);
+  digitalWrite(RS485_DE, LOW); // Set RS485 to receive mode
   Serial.begin(MODBUS_BAUD);
 
   // Initialize SoftwareSerial for HC12
@@ -34,7 +39,10 @@ void loop() {
   // Check if data is available from Modbus RTU Master
   if (Serial.available()) {
     // Read Modbus RTU data
+    HC12.write("aaa");
+
     short requestLength = readModbusRequest(modbusRequest, BUFFER_SIZE);
+
 
     // Encapsulate and send over HC12
     sendOverHC12(modbusRequest, requestLength);
@@ -46,7 +54,12 @@ void loop() {
     short responseLength = receiveFromHC12(modbusResponse, BUFFER_SIZE);
 
     // Forward response to Modbus Master
-    Serial.write(modbusResponse, responseLength);
+    if (responseLength > 0) {
+      digitalWrite(RS485_DE, HIGH); // Set RS485 to transmit mode
+      delay(1); // Allow time for DE to take effect
+      Serial.write(modbusResponse, responseLength);
+      digitalWrite(RS485_DE, LOW); // Set RS485 back to receive mode
+    }
   }
 }
 
@@ -101,7 +114,7 @@ void configureHC12() {
   delay(100);
   HC12.println("AT+FU3"); // Set FU3 mode for long-distance communication
   delay(100);
-  HC12.println("AT+C001"); // Set channel
+  HC12.println(RADIO_CHANNEL); // Set channel
   delay(100);
 
   digitalWrite(HC12_SET, HIGH); // Exit AT Command mode

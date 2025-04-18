@@ -4,9 +4,9 @@
 #define MODBUS_ADDRESS 1
 
 // Define pins for HC-12
-#define HC12_RX 11 // Arduino RX
+#define HC12_RX 13 // Arduino RX
 #define HC12_TX 12 // Arduino TX
-#define HC12_SET 13 // HC-12 SET pin
+#define HC12_SET 10 // HC-12 SET pin
 
 // Define pins for shoot and success signals
 #define SHOOT_PIN 5
@@ -19,6 +19,8 @@
 #define MODBUS_EXCEPTION_ILLEGAL_FUNCTION      0x01
 #define MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS  0x02
 #define MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE    0x03
+
+#define RS485_DE 2 // RS485 DE pin
 
 // Holding registers array (3 registers)
 enum RegisterIndex {
@@ -41,19 +43,26 @@ void setup() {
   pinMode(SUCCESS_PIN, INPUT);
   pinMode(HC12_SET, OUTPUT);
 
+  pinMode(RS485_DE, OUTPUT);
+
   // Initialize HC-12
   HC12.begin(9600); // Default HC-12 baud rate
   configureHC12(); // Configure HC-12 for reliable communication
 
   // Debug output
   Serial.begin(9600); // Debugging on Serial Monitor
+    digitalWrite(RS485_DE, HIGH);
   Serial.println("Custom Modbus Client Initialized...");
+  digitalWrite(RS485_DE, LOW);
 }
 
 void loop() {
   // Poll for incoming encapsulated data from HC-12
   if (HC12.available()) {
     uint8_t request[BUFFER_SIZE];
+    digitalWrite(RS485_DE, HIGH);
+    Serial.println("Received data from HC-12...");
+    digitalWrite(RS485_DE, LOW);
     int requestLength = receiveEncapsulatedPacket(request, BUFFER_SIZE);
 
     // If a valid packet is received, process it
