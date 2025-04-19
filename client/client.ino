@@ -110,14 +110,16 @@ void setup() {
   pinMode(hc12SetPin, OUTPUT);
   digitalWrite(hc12SetPin, HIGH); // Default mode
 
+  Serial.begin(9600); // Modbus RTU side
   hc12.begin(9600);       // HC12 communication
-  setHC12Channel(hc12Channel); // Set channel before any data is sent
 
   // Debug output
   if (DEBUG) {
-    Serial.begin(9600); // Modbus RTU side
+    Serial.println("ClayCast Modbus RTU Client");
     Serial.println("HC-12 and Modbus RTU setup complete.");
   }
+
+  setHC12Channel(hc12Channel); // Set channel before any data is sent
   
 }
 
@@ -155,8 +157,13 @@ void loop() {
 
     if (unwrapModbusRTU(recvBuffer, recvIndex, modbusData, &modbusSize)) {
 #if DEBUG
-      Serial.print("Received valid Modbus packet (size ");
-      Serial.print(modbusSize);
+      Serial.print("Received valid Modbus packet (data: ");
+      for (int i = 0; i < modbusSize; i++) {
+        // Print each byte in hex format, with leading zero if needed
+        if ((uint8_t)modbusData[i] < 0x10) Serial.print('0');  // Leading zero for single-digit hex
+        Serial.print((uint8_t)modbusData[i], HEX);
+        Serial.print(' ');  // Optional: space between hex values
+      }
       Serial.println(")");
 #endif
 
@@ -171,7 +178,12 @@ void loop() {
 
 #if DEBUG
         Serial.print("Sent response (size ");
-        Serial.print(wrappedSize);
+        for (int i = 0; i < wrappedSize; i++) {
+        // Print each byte in hex format, with leading zero if needed
+        if ((uint8_t)hc12Buffer[i] < 0x10) Serial.print('0');  // Leading zero for single-digit hex
+        Serial.print((uint8_t)hc12Buffer[i], HEX);
+        Serial.print(' ');  // Optional: space between hex values
+      }
         Serial.println(")");
 #endif
       }
@@ -196,7 +208,6 @@ void loop() {
     holdingRegisters[SUCCESS] = digitalRead(SUCCESS_PIN);
   }
 }
-
 
 // Process a Modbus RTU request and generate a response
 int processModbusRequest(uint8_t *request, int requestLength, uint8_t *response) {
