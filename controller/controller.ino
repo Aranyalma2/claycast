@@ -63,8 +63,12 @@ void setHC12Channel(uint8_t channel) {
 
     char cmd[10];
     sprintf(cmd, "AT+C%03d", channel);  // Format: AT+C005, AT+C100, etc.
-    Serial.print("Setting HC12 to channel: ");
-    Serial.println(cmd);
+    if (DEBUG) {
+      digitalWrite(RS485_DE, HIGH); // Set to transmit mode
+      Serial.print("Setting HC12 to channel: ");
+      Serial.println(cmd);
+      digitalWrite(RS485_DE, LOW); // Set to receive mode
+    }
 
     digitalWrite(hc12SetPin, LOW);  // Enter AT command mode
     delay(50);
@@ -95,6 +99,14 @@ void setup() {
     Serial.begin(9600);     // Modbus RTU side
     hc12.begin(9600);       // HC12 communication
 
+    // Debug output
+    if (DEBUG) {
+      digitalWrite(RS485_DE, HIGH); // Set to transmit mode
+      Serial.println("ClayCast Modbus RTU Controller");
+      Serial.println("HC-12 and Modbus RTU setup complete.");
+      digitalWrite(RS485_DE, LOW); // Set back to receive mode
+    }
+
     setHC12Channel(hc12Channel); // Set channel before any data is sent
 }
 
@@ -109,40 +121,44 @@ void loop() {
         }
 
         uint16_t wrappedLen = wrapModbusRTU(modbusBuffer, len, hc12Buffer);
+        if(DEBUG) {
+            digitalWrite(RS485_DE, HIGH); // Set to transmit mode
+            Serial.print("Wrapped length: ");
+            Serial.println(wrappedLen);
+            Serial.print("Wrapped data: ");
+            for (uint16_t i = 0; i < wrappedLen; i++) {
+                if ((uint8_t)hc12Buffer[i] < 0x10) Serial.print('0');  // Leading zero for single-digit hex
+                Serial.print((uint8_t)hc12Buffer[i], HEX);
+                Serial.print(' ');  // Optional: space between hex values
+            }
+            Serial.println(")");
+            digitalWrite(RS485_DE, LOW); // Set back to receive mode
+        }
         if (wrappedLen > 0) {
             hc12.write(hc12Buffer, wrappedLen);
         }
     }
 
     // Relay response from HC12 to Serial
-    static uint8_t rxIndex = 0;
-    while (hc12.available()) {
-        uint8_t b = hc12.read();
-        if (rxIndex < sizeof(hc12Buffer)) {
-            hc12Buffer[rxIndex++] = b;
+    if (hc12.available()) {
+        delay(10);
+        uint16_t len = 0;
+        while (hc12.available() && len < MAX_DATA_SIZE) {
+            hc12Buffer[len++] = hc12.read();
         }
-
-        // Check if we might have a full packet
-        if (rxIndex >= 6 && hc12Buffer[0] == START_BYTE && hc12Buffer[rxIndex - 1] == END_BYTE) {
-            uint8_t unwrapped[MAX_DATA_SIZE];
-            uint16_t unwrappedLen = 0;
-
-            if (unwrapModbusRTU(hc12Buffer, rxIndex, unwrapped, &unwrappedLen)) {
+        uint16_t unwrappedLen = 0;
+        uint8_t unwrapped[MAX_DATA_SIZE];
+        if (unwrapModbusRTU(hc12Buffer, len, unwrapped, &unwrappedLen)) {
+            digitalWrite(RS485_DE, HIGH); // Set to transmit mode
+            delay(10); // Allow time for RS485 to switch
+            Serial.write(unwrapped, unwrappedLen);
+            digitalWrite(RS485_DE, LOW); // Set back to receive mode
+        } else {
+            if(DEBUG) {
                 digitalWrite(RS485_DE, HIGH); // Set to transmit mode
-                Serial.write(unwrapped, unwrappedLen);
+                Serial.println("Invalid packet");
                 digitalWrite(RS485_DE, LOW); // Set back to receive mode
             }
-            else {
-                if (DEBUG) {
-                    Serial.print("Invalid packet: ");
-                    for (uint16_t i = 0; i < rxIndex; i++) {
-                        Serial.print(hc12Buffer[i], HEX);
-                        Serial.print(" ");
-                    }
-                    Serial.println();
-                }
-            }
-            rxIndex = 0; // Reset for next packet
         }
     }
 }
