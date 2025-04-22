@@ -1,6 +1,6 @@
 #include <SoftwareSerial.h>
 
-#define DEBUG 1  // Set to 1 to enable debug messages, 0 to disable
+#define DEBUG 0  // Set to 1 to enable debug messages, 0 to disable
 
 // HC12 module pins
 const int hc12RxPin = 12;
@@ -136,6 +136,7 @@ void loop() {
         }
         if (wrappedLen > 0) {
             hc12.write(hc12Buffer, wrappedLen);
+            hc12.flush(); // Ensure all data is sent
         }
     }
 
@@ -145,18 +146,26 @@ void loop() {
         uint16_t len = 0;
         while (hc12.available() && len < MAX_DATA_SIZE) {
             hc12Buffer[len++] = hc12.read();
+            delay(10);
         }
         uint16_t unwrappedLen = 0;
         uint8_t unwrapped[MAX_DATA_SIZE];
         if (unwrapModbusRTU(hc12Buffer, len, unwrapped, &unwrappedLen)) {
             digitalWrite(RS485_DE, HIGH); // Set to transmit mode
-            delay(10); // Allow time for RS485 to switch
+            delay(1); // Allow time for RS485 to switch
             Serial.write(unwrapped, unwrappedLen);
+            Serial.flush();
             digitalWrite(RS485_DE, LOW); // Set back to receive mode
         } else {
             if(DEBUG) {
                 digitalWrite(RS485_DE, HIGH); // Set to transmit mode
                 Serial.println("Invalid packet");
+                Serial.print("Received data: ");
+                for (uint16_t i = 0; i < len; i++) {
+                    if ((uint8_t)hc12Buffer[i] < 0x10) Serial.print('0');  // Leading zero for single-digit hex
+                    Serial.print((uint8_t)hc12Buffer[i], HEX);
+                    Serial.print(' ');  // Optional: space between hex values
+                }
                 digitalWrite(RS485_DE, LOW); // Set back to receive mode
             }
         }
