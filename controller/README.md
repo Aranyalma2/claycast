@@ -44,4 +44,5 @@ All HC12-transmitted messages use a consistent wrapper protocol:
 
 ## 🔧 Notes
 
-- Make sure the HC12 modules are on the same channel (e.g. `CH050`)  
+- Make sure the HC12 modules are on the same channel (e.g. `CH050`)
+- The serial and HC12 baudrates may differ, but it is recommended to choose equal and low rates. However, it is important to match the timing of the packet frames.

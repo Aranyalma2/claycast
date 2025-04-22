@@ -18,8 +18,22 @@
 - Maintains internal holding registers for:
   - Device ID
   - Shoot trigger
-  - Success flag
+  - Success flag (Complex/Simple)
 - Triggers actions based on incoming Modbus commands
+
+#### 🧮 Registers
+
+**Holding Register (4xxxxx)**
+```
++---------+----------------------------+
+| Address | Description                |
++---------+----------------------------+
+| 0x00    | Modbus Address (Read only) |
+| 0x01    | Fire (automatic zeroing)   |
+| 0x02    | IN1 (zeroing at fire)      |
+| 0x03    | IN2 (Raw)                  |
++---------+----------------------------+
+```
 
 ### 📤 Transmit Modbus RTU Responses
 

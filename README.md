@@ -1,4 +1,3 @@
-<h1 align="center">ClayCast</h1>
 <p align="center">
 <img src="./assets/banner.png">
 </p>
@@ -12,27 +11,29 @@
 
 ## 🎯 Features
 
-- Two-way wireless communication using HC12 (433MHz)
+- Two-way wireless communication using HC12 (~433MHz)
 - Full Modbus RTU packet encapsulation (avoid packet fragmantation)
 - Up to **255 clients** (targets) per controller (prefer way lower in practise)
 - Lightweight, low-latency, serial-based protocol
-- Built using **Atmega328p**, **Arduino**, and **HC12**
+- Built using **Atmega328p**, **Arduino framwork**, and **HC12**
 
 ## 🧩 System Architecture
 
-ClayCast operates with two primary components:
+**ClayCast** operates with two primary components:
 
 ### 🔸 Controller
 - Receives Modbus RTU packets via UART
 - Encapsulates and sends packets wirelessly to clients
 - Receives wireless responses from clients
 - Decapsulates packets and forwards responses via UART
+[More about here](controller/README.md)
 
 ### 🔹 Client
 - Identified by unique Modbus slave address
 - Implements a minimal Modbus slave (e.g. trigger + status registers)
 - Receives and responds to Modbus requests
 - Never initiates communication (response-only device)
+[More about here](client/README.md)
 
 ## 📡 Communication Flow
 
@@ -63,6 +64,11 @@ Clients implement:
 ## 🚧 Status
 
 🛠️ Currently under development – initial hardware testing and firmware structure in progress.
+
+## 🔀 Alternative use
+
+Create a Modbus RTU bridge over the air with 2 or more **```Controllers```**. However, radio medium usage is not controlled, so it is easy to cause interference. Incidentally it does not include any error detection and/or correction, leaving everything to the application layer protocol.
+Not ready for any production usage.
 
 ---
 
