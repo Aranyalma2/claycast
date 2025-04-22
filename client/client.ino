@@ -1,46 +1,66 @@
 #include <SoftwareSerial.h>
 
-#define DEBUG 1  // Set to 1 to enable debug messages, 0 to disable
+#define DEBUG 1 // Set to 1 to enable debug messages, 0 to disable
 
 // HC12 module pins
 const int hc12RxPin = 12;
 const int hc12TxPin = 13;
 const int hc12SetPin = 11;
 
-const int hc12Channel = 50;  // Channel number (1–100)
+const int hc12Channel = 50; // Channel number (1–100)
 
 // Create SoftwareSerial for HC12
 SoftwareSerial hc12(hc12RxPin, hc12TxPin); // RX, TX
 
 #define START_BYTE 0xAA
-#define END_BYTE   0x55
+#define END_BYTE 0x55
 #define MAX_DATA_SIZE 260
 
-uint8_t hc12Buffer[MAX_DATA_SIZE + 10];    // buffer for HC12 to serial
+#define BAUD_RATE 9600
+
+uint8_t hc12_buffer[MAX_DATA_SIZE + 10]; // buffer for HC12 to serial
+bool hc12_receiving = false;
+uint16_t hc12_recvIndex = 0;
+uint32_t hc12_lastByteTime = 0;
+uint8_t hc12_frameTime = 40; // Frame time in ms
+
+uint8_t packetBuffer[MAX_DATA_SIZE + 10]; // Buffer for transfer data packet
 
 // Define pins for shoot and success signals
-#define SHOOT_PIN 5
-#define SUCCESS_PIN 6
+#define DO1 7
+#define DO2 8
+#define IN1 A0
+#define IN2 A1
+#define IN3 A2
+#define IN4 A3
+
+#define CONTACT_TIME 1000 // Time to wait for contact closure (in ms)
 
 // Modbus constants
 #define MODBUS_ADDRESS 1 // Slave address
+
 #define MODBUS_FUNCTION_READ_HOLDING_REGISTERS 0x03
-#define MODBUS_FUNCTION_WRITE_SINGLE_REGISTER  0x06
-#define MODBUS_EXCEPTION_ILLEGAL_FUNCTION      0x01
-#define MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS  0x02
-#define MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE    0x03
+#define MODBUS_FUNCTION_WRITE_SINGLE_REGISTER 0x06
+#define MODBUS_EXCEPTION_ILLEGAL_FUNCTION 0x01
+#define MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS 0x02
+#define MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE 0x03
 
 #define RS485_DE 2 // RS485 DE pin
 
 // Holding registers array (3 registers)
 enum RegisterIndex {
   DEVICE_ID = 0,
-  SHOOT = 1,
-  SUCCESS = 2
+    FIRE = 1,
+    CONTACT1 = 2,
+    CONTACT2 = 3,
 };
-uint16_t holdingRegisters[3] = {MODBUS_ADDRESS, 0, 0}; // Initialize registers
+uint16_t holdingRegisters[3] = {
+  MODBUS_ADDRESS,
+  0,
+  0
+}; // Initialize registers
 
-uint16_t wrapModbusRTU(const uint8_t* data, uint16_t dataSize, uint8_t* outBuffer) {
+uint16_t wrapModbusRTU(const uint8_t * data, uint16_t dataSize, uint8_t * outBuffer) {
   if (dataSize > MAX_DATA_SIZE) return 0;
 
   uint16_t checksum = (dataSize >> 8) + (dataSize & 0xFF);
@@ -58,7 +78,7 @@ uint16_t wrapModbusRTU(const uint8_t* data, uint16_t dataSize, uint8_t* outBuffe
   return index;
 }
 
-bool unwrapModbusRTU(const uint8_t* packet, uint16_t packetSize, uint8_t* dataOut, uint16_t* dataSizeOut) {
+bool unwrapModbusRTU(const uint8_t * packet, uint16_t packetSize, uint8_t * dataOut, uint16_t * dataSizeOut) {
   if (packetSize < 6 || packet[0] != START_BYTE || packet[packetSize - 1] != END_BYTE) return false;
 
   uint16_t size = (packet[1] << 8) | packet[2];
@@ -66,26 +86,28 @@ bool unwrapModbusRTU(const uint8_t* packet, uint16_t packetSize, uint8_t* dataOu
 
   uint16_t checksum = (size >> 8) + (size & 0xFF);
   for (uint16_t i = 0; i < size; i++) {
-      dataOut[i] = packet[3 + i];
-      checksum += dataOut[i];
+    dataOut[i] = packet[3 + i];
+    checksum += dataOut[i];
   }
 
   uint16_t receivedChecksum = (packet[3 + size] << 8) | packet[4 + size];
   if (checksum != receivedChecksum) return false;
 
-  *dataSizeOut = size;
+  * dataSizeOut = size;
   return true;
 }
 
 void setHC12Channel(uint8_t channel) {
-  if (channel < 1 || channel > 100) return;  // Out of range
+  if (channel < 1 || channel > 100) return; // Out of range
 
   char cmd[10];
-  sprintf(cmd, "AT+C%03d", channel);  // Format: AT+C005, AT+C100, etc.
+  sprintf(cmd, "AT+C%03d", channel); // Format: AT+C005, AT+C100, etc.
+  #if DEBUG
   Serial.print("Setting HC12 to channel: ");
   Serial.println(cmd);
+  #endif
 
-  digitalWrite(hc12SetPin, LOW);  // Enter AT command mode
+  digitalWrite(hc12SetPin, LOW); // Enter AT command mode
   delay(50);
 
   hc12.print(cmd);
@@ -93,11 +115,11 @@ void setHC12Channel(uint8_t channel) {
 
   // Optional: Wait for OK response
   while (hc12.available()) {
-      char c = hc12.read();
-      // Optionally print to Serial for debug
-      if (DEBUG) {
-          Serial.print(c);
-      }
+    char c = hc12.read();
+    // Optionally print to Serial for debug
+    #if DEBUG
+    Serial.print(c);
+    #endif
   }
 
   digitalWrite(hc12SetPin, HIGH); // Back to transparent mode
@@ -111,106 +133,98 @@ void setup() {
   digitalWrite(hc12SetPin, HIGH); // Default mode
 
   Serial.begin(9600); // Modbus RTU side
-  hc12.begin(9600);       // HC12 communication
+  hc12.begin(9600); // HC12 communication
 
   // Debug output
-  if (DEBUG) {
-    Serial.println("ClayCast Modbus RTU Client");
-    Serial.println("HC-12 and Modbus RTU setup complete.");
-  }
+  #if DEBUG
+  Serial.println("ClayCast Modbus RTU Client");
+  Serial.println("HC-12 and Modbus RTU setup complete.");
+  #endif
 
   setHC12Channel(hc12Channel); // Set channel before any data is sent
-  
+
 }
 
 void loop() {
-  static uint8_t recvBuffer[MAX_DATA_SIZE + 10];
-  static uint16_t recvIndex = 0;
-  static bool receiving = false;
-  static unsigned long lastByteTime = 0;
-
-  // 1. Receive and buffer data from HC12
+  // Receive and buffer data from HC12
   while (hc12.available()) {
     uint8_t byteIn = hc12.read();
-    lastByteTime = millis();
+    hc12_lastByteTime = millis();
 
-    if (!receiving && byteIn == START_BYTE) {
-      receiving = true;
-      recvIndex = 0;
-      recvBuffer[recvIndex++] = byteIn;
-    } else if (receiving) {
-      if (recvIndex < sizeof(recvBuffer)) {
-        recvBuffer[recvIndex++] = byteIn;
+    if (!hc12_receiving && byteIn == START_BYTE) {
+      hc12_receiving = true;
+      hc12_recvIndex = 0;
+      hc12_buffer[hc12_recvIndex++] = byteIn;
+    } else if (hc12_receiving) {
+      if (hc12_recvIndex < sizeof(hc12_buffer)) {
+        hc12_buffer[hc12_recvIndex++] = byteIn;
         if (byteIn == END_BYTE) break; // Possible end of packet
       } else {
-        receiving = false; // Overflow
+        hc12_receiving = false; // Overflow
       }
     }
   }
 
   // 2. Timeout: process if no new byte for 10ms
-  if (receiving && (millis() - lastByteTime > 10)) {
-    receiving = false;
+  if (hc12_receiving && (millis() - hc12_lastByteTime > hc12_frameTime)) {
+    hc12_receiving = false;
 
-    uint8_t modbusData[MAX_DATA_SIZE];
-    uint16_t modbusSize = 0;
-
-    if (unwrapModbusRTU(recvBuffer, recvIndex, modbusData, &modbusSize)) {
-#if DEBUG
-      Serial.print("Received valid Modbus packet (data: ");
-      for (int i = 0; i < modbusSize; i++) {
+    uint16_t unwrappedLen = 0;
+    if (unwrapModbusRTU(hc12_buffer, hc12_recvIndex, packetBuffer, & unwrappedLen)) {
+      #if DEBUG
+      Serial.print("Received valid packet (");
+      for (int i = 0; i < unwrappedLen; i++) {
         // Print each byte in hex format, with leading zero if needed
-        if ((uint8_t)modbusData[i] < 0x10) Serial.print('0');  // Leading zero for single-digit hex
-        Serial.print((uint8_t)modbusData[i], HEX);
-        Serial.print(' ');  // Optional: space between hex values
+        if ((uint8_t) packetBuffer[i] < 0x10) Serial.print('0'); // Leading zero for single-digit hex
+        Serial.print((uint8_t) packetBuffer[i], HEX);
+        Serial.print(' '); // Optional: space between hex values
       }
       Serial.println(")");
-#endif
+      #endif
 
       // 3. Process Modbus request
-      uint8_t response[MAX_DATA_SIZE];
-      int responseSize = processModbusRequest(modbusData, modbusSize, response);
+      int responseSize = processModbusRequest(packetBuffer, unwrappedLen, packetBuffer);
 
       // 4. Wrap and send the response if valid
       if (responseSize > 0) {
-        uint16_t wrappedSize = wrapModbusRTU(response, responseSize, hc12Buffer);
-        hc12.write(hc12Buffer, wrappedSize);
+        uint16_t wrappedSize = wrapModbusRTU(packetBuffer, responseSize, hc12_buffer);
+        hc12.write(hc12_buffer, wrappedSize);
 
-#if DEBUG
-        Serial.print("Sent response (size ");
+        #if DEBUG
+        Serial.print("Sent response (");
         for (int i = 0; i < wrappedSize; i++) {
-        // Print each byte in hex format, with leading zero if needed
-        if ((uint8_t)hc12Buffer[i] < 0x10) Serial.print('0');  // Leading zero for single-digit hex
-        Serial.print((uint8_t)hc12Buffer[i], HEX);
-        Serial.print(' ');  // Optional: space between hex values
-      }
+          // Print each byte in hex format, with leading zero if needed
+          if ((uint8_t) hc12_buffer[i] < 0x10) Serial.print('0'); // Leading zero for single-digit hex
+          Serial.print((uint8_t) hc12_buffer[i], HEX);
+          Serial.print(' '); // Optional: space between hex values
+        }
         Serial.println(")");
-#endif
+        #endif
       }
 
     } else {
-#if DEBUG
+      #if DEBUG
       Serial.println("Invalid packet received.");
-#endif
+      #endif
     }
-
-    recvIndex = 0; // Ready for next
   }
 
   // 5. Modbus-side logic (as before)
-  if (holdingRegisters[SHOOT] == 1) {
-    holdingRegisters[SUCCESS] = 0;
+  if (holdingRegisters[FIRE] == 1) {
+    holdingRegisters[CONTACT1] = 0;
     triggerShoot();
-    holdingRegisters[SHOOT] = 0;
+    holdingRegisters[FIRE] = 0;
   }
 
-  if (holdingRegisters[SHOOT] == 0) {
-    holdingRegisters[SUCCESS] = digitalRead(SUCCESS_PIN);
+  if (holdingRegisters[FIRE] == 0) {
+    holdingRegisters[CONTACT1] = digitalRead(IN1);
   }
+
+  holdingRegisters[CONTACT2] = digitalRead(IN2);
 }
 
 // Process a Modbus RTU request and generate a response
-int processModbusRequest(uint8_t *request, int requestLength, uint8_t *response) {
+int processModbusRequest(uint8_t * request, int requestLength, uint8_t * response) {
   // Validate CRC
   if (!validateCRC(request, requestLength)) {
     return 0; // Invalid CRC, ignore request
@@ -226,17 +240,17 @@ int processModbusRequest(uint8_t *request, int requestLength, uint8_t *response)
   }
 
   switch (functionCode) {
-    case MODBUS_FUNCTION_READ_HOLDING_REGISTERS:
-      return handleReadHoldingRegisters(request, requestLength, response);
-    case MODBUS_FUNCTION_WRITE_SINGLE_REGISTER:
-      return handleWriteSingleRegister(request, requestLength, response);
-    default:
-      return generateExceptionResponse(request, response, MODBUS_EXCEPTION_ILLEGAL_FUNCTION);
+  case MODBUS_FUNCTION_READ_HOLDING_REGISTERS:
+    return handleReadHoldingRegisters(request, requestLength, response);
+  case MODBUS_FUNCTION_WRITE_SINGLE_REGISTER:
+    return handleWriteSingleRegister(request, requestLength, response);
+  default:
+    return generateExceptionResponse(request, response, MODBUS_EXCEPTION_ILLEGAL_FUNCTION);
   }
 }
 
 // Handle Read Holding Registers (Function Code 0x03)
-int handleReadHoldingRegisters(uint8_t *request, int requestLength, uint8_t *response) {
+int handleReadHoldingRegisters(uint8_t * request, int requestLength, uint8_t * response) {
   uint16_t startAddress = (request[2] << 8) | request[3];
   uint16_t quantity = (request[4] << 8) | request[5];
 
@@ -259,7 +273,12 @@ int handleReadHoldingRegisters(uint8_t *request, int requestLength, uint8_t *res
 }
 
 // Handle Write Single Register (Function Code 0x06)
-int handleWriteSingleRegister(uint8_t *request, int requestLength, uint8_t *response) {
+int handleWriteSingleRegister(uint8_t * request, int requestLength, uint8_t * response) {
+  // Ensure requestLength is at least 8 (1 byte address + 1 byte function + 2 bytes address + 2 bytes value + 2 bytes CRC)
+  if (requestLength < 8) {
+    return generateExceptionResponse(request, response, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE);
+  }
+
   uint16_t address = (request[2] << 8) | request[3];
   uint16_t value = (request[4] << 8) | request[5];
 
@@ -267,19 +286,19 @@ int handleWriteSingleRegister(uint8_t *request, int requestLength, uint8_t *resp
     return generateExceptionResponse(request, response, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS);
   }
 
-  if (address == DEVICE_ID || address == SUCCESS) {
+  if (address == DEVICE_ID || address == CONTACT1 || address == CONTACT2) {
     return generateExceptionResponse(request, response, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE);
   }
 
   holdingRegisters[address] = value;
 
-  memcpy(response, request, requestLength);
-  appendCRC(response, requestLength);
-  return requestLength + 2;
+  memcpy(response, request, 6);
+  appendCRC(response, 6);
+  return 8;
 }
 
 // Generate an exception response
-int generateExceptionResponse(uint8_t *request, uint8_t *response, uint8_t exceptionCode) {
+int generateExceptionResponse(uint8_t * request, uint8_t * response, uint8_t exceptionCode) {
   response[0] = MODBUS_ADDRESS;
   response[1] = request[1] | 0x80; // Add error flag
   response[2] = exceptionCode;
@@ -288,21 +307,21 @@ int generateExceptionResponse(uint8_t *request, uint8_t *response, uint8_t excep
 }
 
 // Validate CRC
-bool validateCRC(uint8_t *buffer, int length) {
+bool validateCRC(uint8_t * buffer, int length) {
   uint16_t calculatedCRC = calculateCRC(buffer, length - 2);
   uint16_t receivedCRC = (buffer[length - 1] << 8) | buffer[length - 2];
   return calculatedCRC == receivedCRC;
 }
 
 // Append CRC to a Modbus packet
-void appendCRC(uint8_t *buffer, int length) {
+void appendCRC(uint8_t * buffer, int length) {
   uint16_t crc = calculateCRC(buffer, length);
   buffer[length] = crc & 0xFF;
   buffer[length + 1] = crc >> 8;
 }
 
 // Calculate CRC-16
-uint16_t calculateCRC(uint8_t *buffer, int length) {
+uint16_t calculateCRC(uint8_t * buffer, int length) {
   uint16_t crc = 0xFFFF;
   for (int i = 0; i < length; i++) {
     crc ^= buffer[i];
@@ -319,7 +338,7 @@ uint16_t calculateCRC(uint8_t *buffer, int length) {
 
 // Trigger the shoot mechanism by setting the SHOOT_PIN
 void triggerShoot() {
-  digitalWrite(SHOOT_PIN, HIGH);
-  delay(100); // Simulate short trigger pulse
-  digitalWrite(SHOOT_PIN, LOW);
+  digitalWrite(DO1, HIGH);
+  delay(CONTACT_TIME); // Simulate short trigger pulse
+  digitalWrite(DO1, LOW);
 }
