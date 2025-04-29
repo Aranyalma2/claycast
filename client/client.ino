@@ -3,14 +3,14 @@
 #define DEBUG 1 // Set to 1 to enable debug messages, 0 to disable
 
 // HC12 module pins
-const int hc12RxPin = 12;
-const int hc12TxPin = 13;
-const int hc12SetPin = 11;
+const int hc12RxPin = A5;
+const int hc12TxPin = A4;
+const int hc12SetPin = A3;
 
 const int hc12Channel = 50; // Channel number (1–100)
 
 // Create SoftwareSerial for HC12
-SoftwareSerial hc12(hc12RxPin, hc12TxPin); // RX, TX
+SoftwareSerial hc12(hc12TxPin, hc12RxPin); // RX, TX
 
 #define START_BYTE 0xAA
 #define END_BYTE 0x55
@@ -26,13 +26,12 @@ uint8_t hc12_frameTime = 40; // Frame time in ms
 
 uint8_t packetBuffer[MAX_DATA_SIZE + 10]; // Buffer for transfer data packet
 
+uint32_t trigger_timmer = 0;
+
 // Define pins for shoot and success signals
 #define DO1 7
-#define DO2 8
 #define IN1 A0
 #define IN2 A1
-#define IN3 A2
-#define IN4 A3
 
 #define CONTACT_TIME 1000 // Time to wait for contact closure (in ms)
 
@@ -127,13 +126,14 @@ void setHC12Channel(uint8_t channel) {
 }
 
 void setup() {
+  pinMode(DO1, OUTPUT); // DO1 pin for shoot signal
   pinMode(RS485_DE, OUTPUT); // RS485 DE pin
   digitalWrite(RS485_DE, LOW); // Set to receive mode
   pinMode(hc12SetPin, OUTPUT);
   digitalWrite(hc12SetPin, HIGH); // Default mode
 
-  Serial.begin(9600); // Modbus RTU side
-  hc12.begin(9600); // HC12 communication
+  Serial.begin(BAUD_RATE); // Modbus RTU side
+  hc12.begin(BAUD_RATE); // HC12 communication
 
   // Debug output
   #if DEBUG
@@ -209,6 +209,8 @@ void loop() {
     }
   }
 
+  set_trigger_back();
+
   // 5. Modbus-side logic (as before)
   if (holdingRegisters[FIRE] == 1) {
     holdingRegisters[CONTACT1] = 0;
@@ -221,6 +223,13 @@ void loop() {
   }
 
   holdingRegisters[CONTACT2] = digitalRead(IN2);
+}
+
+// Set the trigger back to LOW after a delay
+void set_trigger_back() {
+  if (millis() - CONTACT_TIME > trigger_timmer) {
+      digitalWrite(DO1, LOW);
+  }
 }
 
 // Process a Modbus RTU request and generate a response
@@ -338,7 +347,6 @@ uint16_t calculateCRC(uint8_t * buffer, int length) {
 
 // Trigger the shoot mechanism by setting the SHOOT_PIN
 void triggerShoot() {
+  trigger_timmer = millis();
   digitalWrite(DO1, HIGH);
-  delay(CONTACT_TIME); // Simulate short trigger pulse
-  digitalWrite(DO1, LOW);
 }

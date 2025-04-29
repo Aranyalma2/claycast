@@ -3,14 +3,14 @@
 #define DEBUG 0 // Set to 1 to enable debug messages, 0 to disable
 
 // HC12 module pins
-const int hc12RxPin = 12;
-const int hc12TxPin = 13;
+const int hc12RxPin = 13;
+const int hc12TxPin = 12;
 const int hc12SetPin = 11;
 
 const int hc12Channel = 50; // Channel number (1–100)
 
 // Create SoftwareSerial for HC12
-SoftwareSerial hc12(hc12RxPin, hc12TxPin); // RX, TX
+SoftwareSerial hc12(hc12TxPin, hc12RxPin); // RX, TX
 
 #define START_BYTE 0xAA
 #define END_BYTE 0x55
@@ -30,6 +30,10 @@ bool serial_receiving = false;
 uint16_t serial_recvIndex = 0;
 uint32_t serial_lastByteTime = 0;
 uint8_t serial_frameTime = 4; // Frame time in ms (Modbus RTU standard)
+
+bool testMode = false;
+uint32_t lastTestSendTime = 0;
+uint16_t testCounter = 0;
 
 uint8_t packetBuffer[MAX_DATA_SIZE + 10]; // Buffer for transfer data packet
 
@@ -66,7 +70,7 @@ bool unwrapModbusRTU(const uint8_t * packet, uint16_t packetSize, uint8_t * data
   uint16_t receivedChecksum = (packet[3 + size] << 8) | packet[4 + size];
   if (checksum != receivedChecksum) return false;
 
-  * dataSizeOut = size;
+  *dataSizeOut = size;
   return true;
 }
 
@@ -107,21 +111,52 @@ void setup() {
   pinMode(hc12SetPin, OUTPUT);
   digitalWrite(hc12SetPin, HIGH); // Default mode
 
+  pinMode(A0, INPUT); // Enable A0 as input to check test trigger
+  pinMode(A1, OUTPUT); // Enable A0 as input to check test trigger
+  digitalWrite(A1, HIGH); // Set A1 to HIGH to pull A0 HIGH
+  testMode = (digitalRead(A0) == HIGH); // Activate test mode if A0 is HIGH at startup
+
   Serial.begin(BAUD_RATE); // Modbus RTU side
   hc12.begin(BAUD_RATE); // HC12 communication
 
   // Debug output
-  if (DEBUG) {
+  if (DEBUG || testMode) {
     digitalWrite(RS485_DE, HIGH); // Set to transmit mode
     Serial.println("ClayCast Modbus RTU Controller");
     Serial.println("HC-12 and Modbus RTU setup complete.");
     digitalWrite(RS485_DE, LOW); // Set back to receive mode
+    delay(5);
+  }
+
+  if (testMode) {
+    digitalWrite(RS485_DE, HIGH);
+    Serial.println("Test mode activated. Sending test data every 500ms.");
+    digitalWrite(RS485_DE, LOW);
   }
 
   setHC12Channel(hc12Channel); // Set channel before any data is sent
 }
 
 void loop() {
+
+  if (testMode) {
+    uint32_t now = millis();
+    if (now - lastTestSendTime >= 500) {
+      lastTestSendTime = now;
+
+      // Create test message
+      char message[50];
+      sprintf(message, "Testing in progress: %u", testCounter++);
+
+      // Wrap and send
+      uint16_t wrappedLen = wrapModbusRTU((uint8_t *)message, strlen(message), packetBuffer);
+      if (wrappedLen > 0) {
+        hc12.write(packetBuffer, wrappedLen);
+        hc12.flush();
+      }
+    }
+    return; // Skip normal loop logic in test mode
+  }
 
   // Receive and buffer data from Serial
   while (Serial.available()) {
