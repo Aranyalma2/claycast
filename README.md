@@ -61,9 +61,28 @@ Clients implement:
 - **Trigger register** – Fire the clay thrower
 - **Status registers** – Read current state or diagnostics
 
-## 🚧 Status
+## 🚧 Status & Development Milestones
 
-🛠️ Currently under development – initial hardware testing and firmware structure in progress.
+🛠️ Currently under Development — Working Prototype Deployed in Test Field
+
+- ✅ **Prototype Hardware Evaluation**  
+  Initial testing and validation of temporary hardware components.
+
+- ✅ **Firmware Architecture Design**  
+  Core structure and logic for both controller and client firmware defined and implemented.
+
+- ✅ **Interim Hardware Integration**  
+  Temporary hardware assembled and tested for early firmware and communication debugging.
+
+- ✅ **Wireless Communication Tester**  
+  Radio signal testing module completed to assess transmission range and reliability.
+
+- 🔧 **Final Hardware Assembly** *(In Progress)*  
+  Development and deployment of production-ready, dedicated hardware.
+
+- 🔧 **Human-Machine Interface (HMI)** *(In Progress)*  
+  Implementation of a ~7-inch touchscreen graphical interface.  
+  Will include game mode selection, fire control, and data logging functionality.
 
 ## 🔀 Alternative use
 
