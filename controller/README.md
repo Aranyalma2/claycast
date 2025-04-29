@@ -21,6 +21,20 @@
 - Unwraps the Modbus RTU data
 - Forwards it back to the Modbus master via hardware `Serial`
 
+### 🧪 Test Mode (Enabled via A0)
+
+If **pin A0 is HIGH** during power-up or reset, the controller enters **testing mode**:
+
+- It disables Modbus forwarding
+- Instead, it periodically sends test messages over HC12 in the following format:
+
+`Testing in progress: {n}`
+
+- These messages are wrapped in the standard packet format below and sent every ~500ms
+- `n` is an incrementing counter used to test communication reliability and packet loss
+
+This mode is useful for verifying wireless reception, packet framing, and performance of the client-side system.
+
 ---
 
 ## 📦 Data Encapsulation Format
