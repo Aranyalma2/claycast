@@ -7,63 +7,84 @@
 <img alt="License" src="https://img.shields.io/github/license/Aranyalma2/claycast?color=56BEB8">
 </p>
 
-**ClayCast** is a wireless Modbus RTU communication bridge designed for clay pigeon shooting ranges. It allows remote control of clay thrower machines via Arduino-based controllers and clients using HC12 radio modules.
+**ClayCast** is a modular wireless control system for clay pigeon shooting ranges.  
+It enables field centralized game management via a touchscreen **HMI device**, which controls up to 10 clay thrower machines through a wireless **Modbus RTU** network.  
+Communication is handled by **controller node** that act as wireless relays to **client devices** attached to each clay thrower.
 
 ## 🎯 Features
 
-- Two-way wireless communication using HC12 (~433MHz)
-- Full Modbus RTU packet encapsulation (avoid packet fragmantation)
-- Up to **255 clients** (targets) per controller (prefer way lower in practise)
-- Lightweight, low-latency, serial-based protocol
-- Built using **Atmega328p**, **Arduino framwork**, and **HC12**
+- **Modular, multi-device architecture**: HMI (master), Controller (relay), and Client (thrower control)
+- **Game management interface** via 7-inch touchscreen HMI
+  - Enable/Disable machines (up to 10)
+  - Pre-configure next game (max throw, double, triple)
+  - Monitor clay disk levels with low-ammo alarms
+  - Game screen
+  - Summary screen
+- **Wireless Modbus RTU bridging** over HC12 (~433MHz)
+  - Up to **255 clients** per controller (practically limited to fewer)
+  - Reliable full-frame encapsulation (no packet fragmentation)
+- **Low-latency protocol** using UART and lightweight firmware
+- Built with **Arduino framework**, **Atmega328p**, **ESP32**, and **HC12 modules**
+- **Open and customizable** — easy to extend or adapt for other range configurations
 
-## 🧩 System Architecture
+## 🧩 Core Components
 
-**ClayCast** operates with two primary components:
+**ClayCast** consists of three main components:
+
+### 💠 HMI Device
+- Acts as the **Modbus RTU Master**
+- Human-Machine Interface with touchscreen
+- Controls up to **10 clay thrower machines**
+- Manages and runs the **preconfigured game**
+- Monitors **ammo levels** and triggers alarms if low
+- Central command and monitoring unit for the entire system  
+[More about here](hmi/README.md)
 
 ### 🔸 Controller
-- Receives Modbus RTU packets via UART
-- Encapsulates and sends packets wirelessly to clients
-- Receives wireless responses from clients
-- Decapsulates packets and forwards responses via UART
+- Acts as a wireless Modbus RTU bridge
+- Receives Modbus requests from a master device via UART (RS485)
+- Encapsulates and broadcasts packets wirelessly to clients
+- Receives wireless responses, decapsulates, and forwards them to the master  
 [More about here](controller/README.md)
 
 ### 🔹 Client
-- Identified by unique Modbus slave address
-- Implements a minimal Modbus slave (e.g. trigger + status registers)
-- Receives and responds to Modbus requests
-- Never initiates communication (response-only device)
+- Identified by a unique Modbus slave address
+- Controls an individual clay thrower machine
+- Listens for Modbus requests, executes commands (e.g., fire), and returns status
+- Response-only device; never initiates communication  
 [More about here](client/README.md)
 
 ## 📡 Communication Flow
 
-1. Controller receives a Modbus RTU request from a master device via UART.
-2. The packet is encapsulated and transmitted over HC12.
-3. The appropriate client (based on Modbus address) receives and processes the request.
-4. The client sends the response back to the controller.
-5. The controller decapsulates and forwards the response to the original Modbus master.
+1. The HMI device sends a Modbus RTU request to the Controller via UART.
+2. The Controller encapsulates the packet and transmits it via HC12.
+3. The designated Client receives, processes, and responds to the request.
+4. The Controller receives the response, decapsulates it, and returns it to the HMI.
 
 ## 🛠️ Hardware Requirements
+
+- **HMI Device**:
+  - Kinco HMI [GL070E](https://en.kinco.cn/productdetail/gl070e90.html)
 
 - **Controller**:
   - Arduino (Atmega328p)
   - HC12 radio module
-  - UART connection to Modbus master over RS485
+  - RS485 interface to HMI (Modbus master)
 
 - **Client**:
   - Arduino (Atmega328p)
   - HC12 radio module
-  - Clay thrower trigger interface (Hardware, realy, microswitch, etc.)
+  - Clay thrower trigger mechanism (relay, microswitch, etc.)
 
 ## 📦 Modbus Support
 
 Clients implement:
 - **Trigger register** – Fire the clay thrower
-- **Status registers** – Read current state or diagnostics
+- **Status registers** – Report state, diagnostics, or ammo level
 
 ## 🚧 Status & Development Milestones
 
-🛠️ Currently under Development — Working Prototype Deployed in Test Field
+🛠️ Currently Under Development — Working Prototype Deployed in Test Field
 
 - ✅ **Prototype Hardware Evaluation**  
   Initial testing and validation of temporary hardware components.
@@ -79,26 +100,27 @@ Clients implement:
 
 - 🔧 **Final Hardware Assembly** *(In Progress)*  
   Development and deployment of production-ready, dedicated hardware.
-
+  
 - 🚀 **Human-Machine Interface (HMI)** *(In Testing)*  
-  Implementation of a ~7-inch touchscreen graphical interface.  
-  Will include game mode selection, fire control, and data logging functionality.
+  - Game customizability, fire control, data logging  
+  - Ammo monitoring with alarms  
+  - Controls up to 10 clay throwers
 
 ## 🔀 Alternative use
 
-Create a Modbus RTU bridge over the air with 2 or more **```Controllers```**. However, radio medium usage is not controlled, so it is easy to cause interference. Incidentally it does not include any error detection and/or correction, leaving everything to the application layer protocol.
+Create a Modbus RTU bridge over the air with 2 or more **Controllers**. However, radio medium usage is not controlled, so it is easy to cause interference. Incidentally it does not include any error detection and/or correction, leaving everything to the application layer protocol.
 Not ready for any production usage.
 
 ---
 
 ## 📜 License
 
-This project is under MIT License. For more details, see the [LICENSE](LICENSE.md) file.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE.md) file for details.
 
 ---
 
 ## 🤝 Contributions
 
-Made with :heart: by <a href="https://github.com/Aranyalma2" target="_blank">Aranyalma2</a>
+Made with ❤️ by <a href="https://github.com/Aranyalma2" target="_blank">Aranyalma2</a>
 
-This is a self maintained project, but feel free to use and modify it on your own. I listen to mistakes and advice.
+This is a self-maintained project. Feel free to use, fork, or modify it. Feedback and suggestions are always welcome!
