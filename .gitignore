@@ -1,1 +1,8 @@
 .vscode/
+hmi/tar/
+hmi/temp/
+hmi/log.txt
+hmi/PLCGEDefaultProperties.xml
+hmi/*.pkgx
+hmi/*.frp
+*dat~

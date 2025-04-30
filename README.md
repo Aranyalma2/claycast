@@ -80,7 +80,7 @@ Clients implement:
 - 🔧 **Final Hardware Assembly** *(In Progress)*  
   Development and deployment of production-ready, dedicated hardware.
 
-- 🔧 **Human-Machine Interface (HMI)** *(In Progress)*  
+- 🚀 **Human-Machine Interface (HMI)** *(In Testing)*  
   Implementation of a ~7-inch touchscreen graphical interface.  
   Will include game mode selection, fire control, and data logging functionality.
 
