@@ -56,10 +56,10 @@ Communication is handled by **controller node** that act as wireless relays to *
 
 ## 📡 Communication Flow
 
-1. The HMI device sends a Modbus RTU request to the Controller via UART.
-2. The Controller encapsulates the packet and transmits it via HC12.
-3. The designated Client receives, processes, and responds to the request.
-4. The Controller receives the response, decapsulates it, and returns it to the HMI.
+1. HMI sends Modbus RTU request to Controller via UART (RS485).
+2. Controller encapsulates and transmits over HC12 radio.
+3. Target Client receives, executes, and responds.
+4. Controller decapsulates and returns response to HMI.
 
 ## 🛠️ Hardware Requirements
 
