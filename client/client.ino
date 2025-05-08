@@ -33,7 +33,8 @@ uint32_t trigger_timmer = 0;
 #define IN1 A0
 #define IN2 A1
 
-#define CONTACT_TIME 1000 // Time to wait for contact closure (in ms)
+#define CONTACT_TIME 500 // Time to wait for contact closure (in ms)
+#define NEXTCAST_TIME 5000 // Time to wait for next cast (in ms)
 
 // Modbus constants
 #define MODBUS_ADDRESS 1 // Slave address
@@ -347,6 +348,8 @@ uint16_t calculateCRC(uint8_t * buffer, int length) {
 
 // Trigger the shoot mechanism by setting the SHOOT_PIN
 void triggerShoot() {
-  trigger_timmer = millis();
-  digitalWrite(DO1, HIGH);
+  if (millis() - NEXTCAST_TIME > trigger_timmer) {
+    trigger_timmer = millis();
+    digitalWrite(DO1, HIGH);
+  }
 }
