@@ -298,9 +298,9 @@ int MacroEntry()
 		errorFlag = !can_fire_x_times(maxShootableAmmo, doubleFire, tripleFire);
 	}
 
-	if (delay < 6)
+	if (delay < 4)
 	{
-		delay = 6; // Ensure the delay is at least 2 ticks/cycles
+		delay = 4; // Ensure the delay is at least 2 ticks/cycles
 	}
 
 	// Step 4: Write back the updated states and any error codes
