@@ -6,3 +6,4 @@ hmi/PLCGEDefaultProperties.xml
 hmi/*.pkgx
 hmi/*.frp
 *dat~
+/bin

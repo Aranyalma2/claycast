@@ -34,7 +34,7 @@ uint32_t trigger_timmer = 0;
 #define IN2 A1
 
 #define CONTACT_TIME 500 // Time to wait for contact closure (in ms)
-#define NEXTCAST_TIME 5000 // Time to wait for next cast (in ms)
+#define NEXTCAST_TIME 4000 // Time to wait for next cast (in ms)
 
 // Modbus constants
 #define MODBUS_ADDRESS 1 // Slave address
