@@ -9,3 +9,5 @@ hmi/*.frp
 /bin
 /client/hardware/hardware-backups
 client/hardware/fp-info-cache
+/controller/hardware/hardware-backups
+*.lck
