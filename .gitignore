@@ -7,3 +7,5 @@ hmi/*.pkgx
 hmi/*.frp
 *dat~
 /bin
+/client/hardware/hardware-backups
+client/hardware/fp-info-cache
