@@ -11,3 +11,6 @@ hmi/*.frp
 client/hardware/fp-info-cache
 /controller/hardware/hardware-backups
 *.lck
+controller/hardware/\#auto_saved_files\#
+controller/hardware/_autosave-hardware.kicad_sch
+controller/hardware/fp-info-cache
