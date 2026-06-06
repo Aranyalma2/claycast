@@ -14,3 +14,7 @@ client/hardware/fp-info-cache
 controller/hardware/\#auto_saved_files\#
 controller/hardware/_autosave-hardware.kicad_sch
 controller/hardware/fp-info-cache
+*.zip
+remote/hardware/fp-info-cache
+remote/hardware/\#auto_saved_files\#
+remote/hardware/_autosave-hardware.kicad_pcb
