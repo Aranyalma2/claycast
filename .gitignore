@@ -18,3 +18,6 @@ controller/hardware/fp-info-cache
 remote/hardware/fp-info-cache
 remote/hardware/\#auto_saved_files\#
 remote/hardware/_autosave-hardware.kicad_pcb
+/client/hardware/output
+/controller/hardware/output
+/remote/hardware/output
